@@ -6,47 +6,43 @@
 //LIBRERÍAS PARA LOS SENSORES
 //////////////////////////////////////////
 #include <DHT.h> //librería para el sensor de humedad
-#include <DHT_U.h>
+//#include <DHT_U.h>
 #include <SoftwareSerial.h> //para añadir otro puerto serie por pines distintos al 0 y 1
 #include <Wire.h>   // incluye libreria de bus I2C
-#include <Adafruit_Sensor.h>  // incluye librerias para sensor BMP280
+//#include <Adafruit_Sensor.h>  // incluye librerias para sensor BMP280
 #include <Adafruit_BMP280.h>
 #include <SPI.h>    // incluye librería interfaz SPI necesario para el lector de microSD
 #include <SD.h>     // incluye librería para tarjetas SD
-#include <DHT_U.h>    // incluye libreria Adafruit Unified Sensor
+//#include <DHT_U.h>    // incluye libreria Adafruit Unified Sensor
 
 //////////////////////////////////////////////////////////////////////////////
 //VARIABLES PARA SENSOR HUMEDAD DHT11 Y SENSOR PRESIÓN Y TEMPERATURA BMP280
 /////////////////////////////////////////////////////////////////////////////
-int Pin_DHT= 2;  // pin DATOS de DHT11 o DHT22 a pin digital 2
-float TEMPERATURA;    // variable para almacenar valor de temperatura
-float PRESION, P0;    // variables para almacenar valor de presion atmosferica
+//byte Pin_DHT= 4;  // pin DATOS de DHT11 o DHT22 a pin digital 2
+float P0;    // variables para almacenar valor de presion atmosferica
                       // y presion actual como referencia para altitud
+//////// Variables para el serialEvent/////////////////                    
+String inputString = "";         // a String to hold incoming data
+bool stringComplete = false;  // whether the string is complete
+///////////////////////////////////////////////////////
 
 unsigned long previousMillis=0; //variable para almacenar el tiempo del último envío
 const long intervalo_envio=1100; //intervalo de tiempo entre cada envío de datos por el HC12
 
-int Presion_min = 898;     // presión atmosférica a 1000 m de altitud
-int MillisInicioBajada = 0;
-boolean InicioBajada= false;
+//int Presion_min = 898;     // presión atmosférica a 1000 m de altitud
+//int MillisInicioBajada = 0;
+//boolean InicioBajada= false;
 int intervalo_servo  = 10000;    // 10 segundos
 #define SSpin 10    // Slave Select en pin digital 10 necesario para el lector de tarjetas microSD
 
-////// VARIABLES PARA EL SENSOR ULTRAVIOLETA  CJMCU-GUVA-S12SD/CJMCU-S12D/////////
-////// Sensor ULTRAVIOLETA:  SIGNAL->A0; Vcc=5V
-
-long sum = 0;
-int Vout = 0;
-int sensorValue = 0;
-int uv;
-
 ///////CREACIÓN DE OBJETOS PARA CADA SENSOR/////////
-DHT dht(Pin_DHT, DHT11);   // objeto sensor de humedad. Cambiar segundo parámetro por DHT22 si se utiliza en lugar del DHT11
+DHT dht(4, DHT11);   // objeto sensor de humedad conectado al pin 4. Cambiar segundo parámetro por DHT22 si se utiliza en lugar del DHT11
 Adafruit_BMP280 bmp;        //objeto sensor de temperatura y presión
 SoftwareSerial HC12 (10,11); //objeto para crear un puerto serie virtual para el emisor de radiofrecuencia
 File archivo;     // objeto archivo del tipo File para lector de tarjetas microSD
 
  void setup(){
+  inputString.reserve(20);
   if (!SD.begin(SSpin)) {     // inicializacion de tarjeta SD
     Serial.println("Fallo inicializando tarjeta SD!");// si falla se muestra texto correspondiente y
     return;         // se sale del setup() para finalizar el programa
@@ -67,12 +63,19 @@ File archivo;     // objeto archivo del tipo File para lector de tarjetas microS
     }
 
 void loop(){
-  enviar_datos();
-  medir_UV();
-  SoltarSemillas();
-  Cerrar_archivo_SD(); // Cerrará el archivo SD cuando haya pasado un tiempo determinado
-}
+  void enviar_datos();
+  int medir_UV();
+  void SoltarSemillas();
+  void Cerrar_archivo_SD(); // Cerrará el archivo SD cuando haya pasado un tiempo determinado
 
+// Imprime una cadesna cuando llega  una nueva línea:
+  if (stringComplete) {
+    Serial.println(inputString);
+    // Borra el string y se pone a la espera de un nuevo string inicializando de nuevo stringComplete
+    inputString = "";
+    stringComplete = false;
+  }
+}
 
 void enviar_datos(){
     unsigned long actual=millis();  //Obtenemos el tiempo actual
@@ -99,20 +102,25 @@ void enviar_datos(){
   HC12.write ((byte*)&presion, sizeof(presion));  //Enviamos la presion a través del HC-12
   HC12.write ((byte*)&altitud, sizeof(altitud));
   HC12.write ((byte*)&humedad, sizeof(humedad)); 
+  }
 }
 
-}
+
 void Cerrar_archivo_SD(){
     unsigned long actual=millis();  //Obtenemos el tiempo actual
-    if (actual>=900000){  // Comprobamos si ha pasado 15 min para cierre del archivo SD
+    if (actual>=30000){  // Comprobamos si ha pasado 30s para cierre del archivo SD
       archivo.close();        // cierre de archivo
       Serial.println("Archivo de la tarjeta SD completado"); // texto de escritura correcta en monitor serie
     }
 }
 
-void medir_UV() {
-  sensorValue = 0;
-  sum = 0;
+////// VARIABLES PARA EL SENSOR ULTRAVIOLETA  CJMCU-GUVA-S12SD/CJMCU-S12D/////////
+////// Sensor ULTRAVIOLETA:  SIGNAL->A0; Vcc=5V
+  void medir_UV() {
+  int sensorValue = 0;
+  long sum = 0;
+  int Vout = 0;
+  int uv;
   for (int i = 0 ; i < 1024 ; i++ ) {
     sensorValue = analogRead(A0);
     sum = sensorValue + sum;
@@ -164,7 +172,23 @@ void medir_UV() {
   Serial.println(uv);
 }
 
-void SoltarSemillas(){
+void serialEvent(){ // esta función se ejecuta al acabar cada loop
+while (HC12.available()) {
+    // get the new byte:
+    char inChar = (char)HC12.read(); //leemos el caracter que entra por el puerto serie
+    // lo añadimos al inputString:
+    inputString += inChar;
+    // si el siguiente carácter es un salto de línea, activa un aviso para que el programa 
+    //en bucle pueda hacer algo al respecto
+    if (inChar == '\n') {
+      stringComplete = true;
+      }
+    }
+}
+
+//void SoltarSemillas(){
+ // }
+  
   /*
    * SoltarSemillas()
         Medir presiÃ³nActual
@@ -181,5 +205,4 @@ void SoltarSemillas(){
             
                 ActivarServo
 */
-
-}
+  
